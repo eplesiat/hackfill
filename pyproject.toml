@@ -20,6 +20,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "ipykernel",
+    "ipywidgets>=8.1.9",
 ]
 
 [tool.uv]
