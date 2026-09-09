@@ -80,14 +80,20 @@ def get_remap_matrix(source, target):
 
 
 def conservative_remap(values, remap_matrix, target_shape):
-    """Apply a precomputed conservative remapping matrix to one or more fields."""
+    """Apply remapping weights, or validate and return an already matching grid."""
+    
+    if remap_matrix is None:
+        return values
+
     values = np.asarray(values)
+    target_shape = tuple(target_shape)
+
     if np.prod(values.shape[-2:]) != remap_matrix.shape[1]:
         raise ValueError("The input field shape does not match the remapping matrix")
 
     flat = values.reshape((-1, remap_matrix.shape[1]))
     mapped = (remap_matrix @ flat.T).T
-    return mapped.reshape(values.shape[:-2] + tuple(target_shape)).astype(values.dtype, copy=False)
+    return mapped.reshape(values.shape[:-2] + target_shape).astype(values.dtype, copy=False)
 
 
 def plot_tensor(tensor, ax, name="", latlon=None, cmap="viridis", vmin=None, vmax=None):
