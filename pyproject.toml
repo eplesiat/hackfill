@@ -1,0 +1,33 @@
+[project]
+name = "hackfill-notebook"
+version = "0.1.0"
+description = "Environment for the RADOLAN infilling notebook"
+requires-python = ">=3.11"
+dependencies = [
+    "cartopy",
+    "dask[array]>=2026.8.0",
+    "lightning",
+    "matplotlib",
+    "mlflow",
+    "netcdf4",
+    "numpy",
+    "scipy",
+    "torch==2.5.1",
+    "tqdm",
+    "xarray",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"

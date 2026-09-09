@@ -1,0 +1,1 @@
+/work/bk1444/hackathon_2026/challenge_2/data/radolan/radolan_complete_64x64.nc
