@@ -1,10 +1,100 @@
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
+from matplotlib import colormaps
+from matplotlib.colors import ListedColormap
 import numpy as np
 from scipy import sparse
 import torch
+import torch.nn.functional as F
 
+import os
+import certifi
+os.environ["SSL_CERT_FILE"] = certifi.where()
+os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+
+def get_imax(data, n_indices=3):
+    tensor = torch.as_tensor(data)
+    means = torch.nanmean(tensor, dim=tuple(range(1, tensor.ndim)))
+    return torch.argsort(means)[-n_indices:]
+
+def get_window_indices(da, temporal_context):
+    nt_before, nt_after = temporal_context
+    steps, counts = np.unique(np.diff(da.time.values), return_counts=True)
+    time_step = steps[counts.argmax()]
+
+    offsets = np.arange(-nt_before, nt_after + 1)
+    expected = da.time.values[:, None] + offsets * time_step
+    window_indices = da.indexes["time"].get_indexer(expected.ravel()).reshape(expected.shape)
+    missing = window_indices < 0
+    window_indices = np.maximum(window_indices, 0)
+
+    return nt_before, nt_after, window_indices, missing
+
+class IDW(torch.nn.Module):
+    def __init__(self, radius=4, power=2):
+        super().__init__()
+        y, x = torch.meshgrid(
+            torch.arange(-radius, radius + 1),
+            torch.arange(-radius, radius + 1),
+            indexing="ij",
+        )
+        distance = torch.sqrt(x.float() ** 2 + y.float() ** 2)
+        weights = distance.clamp_min(1).pow(-power)
+        weights[radius, radius] = 0
+
+        self.radius = radius
+        self.register_buffer(
+            "weights",
+            weights[None, None],
+            persistent=False,
+        )
+
+    def forward(self, values, input_mask):
+        valid = input_mask & torch.isfinite(values)
+
+        numerator = F.conv2d(
+            torch.where(valid, values, 0),
+            self.weights,
+            padding=self.radius,
+        )
+        denominator = F.conv2d(
+            valid.to(values.dtype),
+            self.weights,
+            padding=self.radius,
+        )
+
+        interpolated = numerator / denominator.clamp_min(1e-12)
+        interpolated[denominator == 0] = torch.nan
+
+        return torch.where(valid, values, interpolated)
+
+nws_precip_colors = [
+    "#04e9e7",
+    "#019ff4",
+    "#0300f4",
+    "#02fd02",
+    "#01c501",
+    "#008e00",
+    "#fdf802",
+    "#e5bc00",
+    "#fd9500",
+    "#fd0000",
+    "#d40000",
+    "#bc0000",
+    "#f800fd",
+    "#9854c6",
+    "#1f0a2e",
+]
+
+nws_precip = ListedColormap(
+    nws_precip_colors,
+    name="nws_precip",
+)
+
+# Avoid an error if utils.py is reloaded in a notebook.
+if "nws_precip" not in colormaps:
+    colormaps.register(nws_precip)
 
 def _cell_bounds(points, latitude=False):
     """Infer cell edges from one-dimensional cell centres."""
@@ -81,7 +171,7 @@ def get_remap_matrix(source, target):
 
 def conservative_remap(values, remap_matrix, target_shape):
     """Apply remapping weights, or validate and return an already matching grid."""
-    
+
     if remap_matrix is None:
         return values
 
@@ -118,11 +208,18 @@ def plot_tensor(tensor, ax, name="", latlon=None, cmap="viridis", vmin=None, vma
     return image
 
 
-def plot_sample(tensors, labels, latlon=None, cmap="viridis", vmin=None, vmax=None):
+def plot_sample(tensors, labels, latlon=None, cmap="viridis", vmin=None, vmax=None, i_cbar=None):
     """Plot variables as columns and, for batched tensors, samples as rows."""
 
     n_axes = len(tensors)
     assert n_axes == len(labels)
+    if i_cbar is not None:
+        assert i_cbar < n_axes
+        if vmin is None:
+            vmin = np.nanmin(tensors[i_cbar])
+        if vmax is None:
+            vmax = np.nanmax(tensors[i_cbar])
+
     batched = tensors[0].ndim > 3
     n_samples = len(tensors[0]) if batched else 1
     subplot_kw = {"projection": ccrs.PlateCarree()} if latlon is not None else {}
@@ -133,3 +230,14 @@ def plot_sample(tensors, labels, latlon=None, cmap="viridis", vmin=None, vmax=No
             plot_tensor(tensors[i][row] if batched else tensors[i], ax[row, i], labels[i], latlon, cmap, vmin, vmax)
     fig.tight_layout(h_pad=0.2)
     return fig
+
+def plot_missing(data):
+    missing_percentage = 100 * data.missing.mean()
+    plt.figure(figsize=(14, 3))
+    plt.imshow(data.missing.T, aspect="auto", interpolation="nearest", cmap="Blues")
+    plt.xlabel("Sample index")
+    plt.ylabel("Temporal-context position")
+    plt.yticks(range(data.missing.shape[1]), range(-data.nt_before, data.nt_after + 1))
+    plt.colorbar(label="Missing")
+    plt.title(f"Missing timestamps ({missing_percentage:.2f}%)")
+    plt.show()

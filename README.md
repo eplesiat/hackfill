@@ -11,7 +11,6 @@ uv run python -m ipykernel install --user --name hackfill --display-name "Python
 ```
 
 Open `infill_radolan.ipynb` and select the **Python (hackfill)** kernel. Update
-the observation path in the notebook and list the reference NetCDF files, one
-path per line, in `data_files.txt`.
+the data, observation and mask paths in the notebook.
 
 The RADOLAN data, model checkpoints, logs, and local data paths are not included.
